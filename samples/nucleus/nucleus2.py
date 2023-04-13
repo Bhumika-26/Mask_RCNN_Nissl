@@ -99,7 +99,7 @@ class NucleusConfig(Config):
 
     # Don't exclude based on confidence. Since we have two classes
     # then 0.5 is the minimum anyway as it picks between nucleus and BG
-    DETECTION_MIN_CONFIDENCE = 0
+    DETECTION_MIN_CONFIDENCE = 0.8
 
     # Backbone network architecture
     # Supported values are: resnet50, resnet101
@@ -345,46 +345,13 @@ def mask_to_rle(image_id, mask, scores):
 #  Detection
 ############################################################
 
-def detect(model, dataset_dir, subset):
-    """Run detection on images in the given directory."""
-    print("Running on {}".format(dataset_dir))
-
-    # Create directory
-    if not os.path.exists(RESULTS_DIR):
-        os.makedirs(RESULTS_DIR)
-    submit_dir = "submit_{:%Y%m%dT%H%M%S}".format(datetime.datetime.now())
-    submit_dir = os.path.join(RESULTS_DIR, submit_dir)
-    os.makedirs(submit_dir)
-
-    # Read dataset
-    dataset = NucleusDataset()
-    dataset.load_nucleus(dataset_dir, subset)
-    dataset.prepare()
-    # Load over images
-    submission = []
-    for image_id in dataset.image_ids:
-        # Load image and run detection
-        image = dataset.load_image(image_id)
-        # Detect objects
-        r = model.detect([image], verbose=0)[0]
-        # Encode image to RLE. Returns a string of multiple lines
-        source_id = dataset.image_info[image_id]["id"]
-        rle = mask_to_rle(source_id, r["masks"], r["scores"])
-        submission.append(rle)
-        # Save image with masks
-        visualize.display_instances(
-            image, r['rois'], r['masks'], r['class_ids'],
-            "CELL", r['scores'],
-            show_bbox=False, show_mask=True,
-            title="Predictions")
-        plt.savefig("{}/{}.png".format(submit_dir, dataset.image_info[image_id]["id"]))
-
-    # Save to csv file
-    submission = "ImageId,EncodedPixels\n" + "\n".join(submission)
-    file_path = os.path.join(submit_dir, "submit.csv")
-    with open(file_path, "w") as f:
-        f.write(submission)
-    print("Saved to ", submit_dir)
+def detect(model, image):
+    """Run detection on images."""
+    r = model.detect([image], verbose=0)[0]
+    #print("nucleus1 --------------------->")
+    #print(r["masks"].shape)
+    #print(r["scores"])
+    return(r["masks"])
 
 
 ############################################################

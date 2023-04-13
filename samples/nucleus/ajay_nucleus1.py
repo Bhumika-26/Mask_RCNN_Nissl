@@ -43,7 +43,7 @@ import numpy as np
 import skimage.io
 import tensorflow as tf
 import keras.backend as K
-from imgaug import augmenters as iaa
+# from imgaug import augmenters as iaa
 
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "1"
@@ -83,23 +83,26 @@ VAL_IMAGE_IDS = ['G_PMD1605_034_X9217Y14337', 'R_PMD1605_033_X8705Y4097']
 ############################################################
 
 class NucleusConfig(Config):
-    """Configuration for training on the nucleus segmentation dataset."""
+    """Configuration for training on the nissl segmentation dataset. while using command "train"
+    """
     # Give the configuration a recognizable name
-    NAME = "nucleus"
+    NAME = "nissl"
 
     # Adjust depending on your GPU memory
-    IMAGES_PER_GPU = 2
+    IMAGES_PER_GPU = 1
+    GPU_COUNT = 1 # since multiprocessing doesn't work
 
     # Number of classes (including background)
-    NUM_CLASSES = 1 + 1  # Background + nucleus
+    NUM_CLASSES = 1 + 1  # Background + cell
 
     # Number of training and validation steps per epoch
-    STEPS_PER_EPOCH = (35 - len(VAL_IMAGE_IDS)) // IMAGES_PER_GPU
-    VALIDATION_STEPS = max(1, len(VAL_IMAGE_IDS) // IMAGES_PER_GPU)
+    # 238 is the size of train set
+    STEPS_PER_EPOCH = 218 // (IMAGES_PER_GPU * GPU_COUNT)
+    VALIDATION_STEPS = max(1, 20 // (IMAGES_PER_GPU * GPU_COUNT))
 
     # Don't exclude based on confidence. Since we have two classes
-    # then 0.5 is the minimum anyway as it picks between nucleus and BG
-    DETECTION_MIN_CONFIDENCE = 0
+    # then 0.5 is the minimum anyway as it picks between nissl and BG
+    DETECTION_MIN_CONFIDENCE = 0.7
 
     # Backbone network architecture
     # Supported values are: resnet50, resnet101
@@ -110,10 +113,17 @@ class NucleusConfig(Config):
     IMAGE_RESIZE_MODE = "crop"
     IMAGE_MIN_DIM = 512
     IMAGE_MAX_DIM = 512
-    IMAGE_MIN_SCALE = 2.0
 
     # Length of square anchor side in pixels
-    RPN_ANCHOR_SCALES = (8, 16, 32, 64, 128)
+    RPN_ANCHOR_SCALES = (16, 32, 64, 128, 256)
+
+    # Ratios of anchors at each cell (width/height)
+    # A value of 1 represents a square anchor, and 0.5 is a wide anchor
+    RPN_ANCHOR_RATIOS = [0.5, 1, 2, 4]
+
+    # Non-max suppression threshold to filter RPN proposals.
+    # You can increase this during training to generate more propsals.
+    RPN_NMS_THRESHOLD = 0.9
 
     # ROIs kept after non-maximum supression (training and inference)
     POST_NMS_ROIS_TRAINING = 1000
@@ -124,15 +134,17 @@ class NucleusConfig(Config):
     RPN_NMS_THRESHOLD = 0.9
 
     # How many anchors per image to use for RPN training
-    RPN_TRAIN_ANCHORS_PER_IMAGE = 64
+    # RPN_TRAIN_ANCHORS_PER_IMAGE = 64
 
     # Image mean (RGB)
-    MEAN_PIXEL = np.array([43.53, 39.56, 48.22])
+    # setting means for R and G to 0 since cells are mostly blue
+    MEAN_PIXEL = np.array([0, 0, 103.9])
 
     # If enabled, resizes instance masks to a smaller size to reduce
     # memory load. Recommended when using high-resolution images.
     USE_MINI_MASK = True
     MINI_MASK_SHAPE = (56, 56)  # (height, width) of the mini-mask
+    IMAGE_CHANNEL_COUNT = 3
 
     # Number of ROIs per image to feed to classifier/mask heads
     # The Mask RCNN paper uses 512 but often the RPN doesn't generate
@@ -142,22 +154,27 @@ class NucleusConfig(Config):
     TRAIN_ROIS_PER_IMAGE = 128
 
     # Maximum number of ground truth instances to use in one image
-    MAX_GT_INSTANCES = 200
+    MAX_GT_INSTANCES = 400
 
     # Max number of final detections per image
     DETECTION_MAX_INSTANCES = 400
 
-
 class NucleusInferenceConfig(NucleusConfig):
+    """Test-time configurations. while using command "test" or "detect"
+    """
     # Set batch size to 1 to run one image at a time
-    GPU_COUNT = 1
+    GPU_COUNT = 2
     IMAGES_PER_GPU = 1
-    # Don't resize imager for inferencing
-    IMAGE_RESIZE_MODE = "pad64"
+
+    IMAGE_RESIZE_MODE = "crop"
+    IMAGE_MIN_DIM = 512
+    IMAGE_MAX_DIM = 512
+
     # Non-max suppression threshold to filter RPN proposals.
     # You can increase this during training to generate more propsals.
-    RPN_NMS_THRESHOLD = 0.7
+    RPN_NMS_THRESHOLD = 0.9
 
+    USE_MINI_MASK = False
 
 ############################################################
 #  Dataset
@@ -345,46 +362,14 @@ def mask_to_rle(image_id, mask, scores):
 #  Detection
 ############################################################
 
-def detect(model, dataset_dir, subset):
-    """Run detection on images in the given directory."""
-    print("Running on {}".format(dataset_dir))
-
-    # Create directory
-    if not os.path.exists(RESULTS_DIR):
-        os.makedirs(RESULTS_DIR)
-    submit_dir = "submit_{:%Y%m%dT%H%M%S}".format(datetime.datetime.now())
-    submit_dir = os.path.join(RESULTS_DIR, submit_dir)
-    os.makedirs(submit_dir)
-
-    # Read dataset
-    dataset = NucleusDataset()
-    dataset.load_nucleus(dataset_dir, subset)
-    dataset.prepare()
-    # Load over images
-    submission = []
-    for image_id in dataset.image_ids:
-        # Load image and run detection
-        image = dataset.load_image(image_id)
-        # Detect objects
-        r = model.detect([image], verbose=0)[0]
-        # Encode image to RLE. Returns a string of multiple lines
-        source_id = dataset.image_info[image_id]["id"]
-        rle = mask_to_rle(source_id, r["masks"], r["scores"])
-        submission.append(rle)
-        # Save image with masks
-        visualize.display_instances(
-            image, r['rois'], r['masks'], r['class_ids'],
-            "CELL", r['scores'],
-            show_bbox=False, show_mask=True,
-            title="Predictions")
-        plt.savefig("{}/{}.png".format(submit_dir, dataset.image_info[image_id]["id"]))
-
-    # Save to csv file
-    submission = "ImageId,EncodedPixels\n" + "\n".join(submission)
-    file_path = os.path.join(submit_dir, "submit.csv")
-    with open(file_path, "w") as f:
-        f.write(submission)
-    print("Saved to ", submit_dir)
+def detect(model, image):
+    """Run detection on images."""
+    r = model.detect([image], verbose=0)[0]
+    # print(r)
+    #print("nucleus1 --------------------->")
+    # print(r["masks"].shape)
+    #print(r["scores"])
+    return(r["masks"])
 
 
 ############################################################
