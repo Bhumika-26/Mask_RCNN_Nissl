@@ -60,3 +60,4 @@ ENV/
 ._.DS_Store
 samples/.DS_Store
 samples/._.DS_Store
+data
