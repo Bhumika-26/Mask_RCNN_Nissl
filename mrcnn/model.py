@@ -22,7 +22,6 @@ import keras.backend as K
 import keras.layers as KL
 import keras.engine as KE
 import keras.models as KM
-
 from mrcnn import utils
 
 # Requires TensorFlow 1.3+ and Keras 2.0.8+.
@@ -2196,7 +2195,7 @@ class MaskRCNN():
             loss = (
                 tf.reduce_mean(layer.output, keepdims=True)
                 * self.config.LOSS_WEIGHTS.get(name, 1.))
-            self.keras_model.metrics_tensors.append(loss)
+            self.keras_model.metrics.append(loss)
 
     def set_trainable(self, layer_regex, keras_model=None, indent=0, verbose=1):
         """Sets model layers as trainable if their names match
@@ -2491,8 +2490,8 @@ class MaskRCNN():
         masks: [H, W, N] instance binary masks
         """
         assert self.mode == "inference", "Create model in inference mode."
-        assert len(
-            images) == self.config.BATCH_SIZE, "len(images) must be equal to BATCH_SIZE"
+        # print(len(images))
+        assert len(images) == self.config.BATCH_SIZE, "len(images) must be equal to BATCH_SIZE"
 
         if verbose:
             log("Processing {} images".format(len(images)))
@@ -2520,8 +2519,18 @@ class MaskRCNN():
             log("image_metas", image_metas)
             log("anchors", anchors)
         # Run object detection
+        # print('Reach Detects...')
+        # Multiprocessing step
+        # self.keras_model._make_predict_function()
+        # sess = tf.Session()
+        # sess.run(tf.global_variables_initializer())
+        # default_graph = tf.get_default_graph()
+        # default_graph.finalize()
+
+        # with default_graph.as_default():
         detections, _, _, mrcnn_mask, _, _, _ =\
             self.keras_model.predict([molded_images, image_metas, anchors], verbose=0)
+        # print('Out Detects...')
         # Process detections
         results = []
         for i, image in enumerate(images):
@@ -2535,6 +2544,7 @@ class MaskRCNN():
                 "scores": final_scores,
                 "masks": final_masks,
             })
+            results.append(final_masks)
         return results
 
     def detect_molded(self, molded_images, image_metas, verbose=0):
