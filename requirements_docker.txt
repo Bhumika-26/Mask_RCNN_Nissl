@@ -1,3 +1,4 @@
 scikit-image
 keras==2.3.1
 jupyter
+opencv-python-headless==4.4.0.46
