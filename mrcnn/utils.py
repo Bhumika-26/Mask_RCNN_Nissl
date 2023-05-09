@@ -529,7 +529,7 @@ def minimize_mask(bbox, mask, mini_shape):
         if m.size == 0:
             raise Exception("Invalid bounding box with area of zero")
         # Resize with bilinear interpolation
-        m = resize(m, mini_shape)
+        m = resize(m, mini_shape,order=0)
         mini_mask[:, :, i] = np.around(m).astype(np.bool)
     return mini_mask
 
@@ -547,7 +547,7 @@ def expand_mask(bbox, mini_mask, image_shape):
         h = y2 - y1
         w = x2 - x1
         # Resize with bilinear interpolation
-        m = resize(m, (h, w))
+        m = resize(m, (h, w),order=0)
         mask[y1:y2, x1:x2, i] = np.around(m).astype(np.bool)
     return mask
 

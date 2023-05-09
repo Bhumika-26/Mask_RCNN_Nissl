@@ -42,6 +42,7 @@ import json
 import datetime
 import numpy as np
 import skimage.io
+from skimage import measure
 import tensorflow as tf
 import keras.backend as K
 from imgaug import augmenters as iaa
@@ -183,6 +184,23 @@ class NucleusInferenceConfig(NucleusConfig):
 #  Dataset
 ############################################################
 
+from skimage.segmentation import (
+    watershed, relabel_sequential, 
+    find_boundaries
+)
+
+import scipy
+from skimage.feature import peak_local_max
+def label_watershed(fgmask):
+    
+    distance = scipy.ndimage.distance_transform_edt(fgmask)
+    coords = peak_local_max(distance, min_distance=11, footprint=np.ones((7, 7)))
+    mask = np.zeros(distance.shape, dtype=bool)
+    mask[tuple(coords.T)] = True
+    markers, _ = scipy.ndimage.label(mask)
+    return watershed(-distance, markers, mask=fgmask)
+
+
 class NucleusDataset(utils.Dataset):
 
     def load_nucleus(self, dataset_dir, subset):
@@ -210,16 +228,16 @@ class NucleusDataset(utils.Dataset):
         else:
             # Get image ids from directory names
             # image_ids = next(os.walk(dataset_dir))[1]
-            image_ids = glob.glob(dataset_dir + '/images/*.png') 
+            image_ids = glob.glob(dataset_dir + '/images/*.jpg') 
             if subset == "train":
                 image_ids = list(set(image_ids) - set(VAL_IMAGE_IDS))
 
         # Add images
         for image_path in image_ids:
-            image_id = int(os.path.basename(image_path)[:-4])
+            image_id = os.path.basename(image_path)[:-4]
             self.add_image(
                 "nucleus",
-                image_id=image_id,
+                image_id=str(image_id),
                 # path=os.path.join(dataset_dir, image_id, "images/{}.png".format(image_id))
                 path = image_path
             )
@@ -233,7 +251,7 @@ class NucleusDataset(utils.Dataset):
         """
         info = self.image_info[image_id]
         # Get mask directory from image path
-        mask_dir = os.path.join(os.path.dirname(os.path.dirname(info['path'])), "../masks")
+        mask_dir = os.path.join(os.path.dirname(os.path.dirname(info['path'])), "masks")
 
         # Read mask files from .png image
 #         mask = []
@@ -243,7 +261,7 @@ class NucleusDataset(utils.Dataset):
         
 #         for f in next(os.walk(mask_dir))[2]:
 #             if f.endswith(".png"):
-        m = skimage.io.imread(os.path.join(mask_dir, "%d_annotated.png"%image_id)).astype(np.uint8)
+        m = skimage.io.imread(os.path.join(mask_dir, "%s_annotated.png"%info['id'])).astype(np.uint8)
 #                 mask.append(m)
 #         mask = np.stack(mask, axis=-1)
         # Return mask, and array of class IDs of each instance. Since we have
@@ -256,9 +274,9 @@ class NucleusDataset(utils.Dataset):
         #     plt.imshow(mask)
         #     plt.show()
             msk_lbl = measure.label(mask)
-            print(ii,msk_lbl.max())
+            # print(ii,msk_lbl.max())
             # regionprops etc
-            props = measure.regionprops_table(msk_lbl,im[...,0],properties=('label','area','bbox_area'))
+            props = measure.regionprops_table(msk_lbl,m[...,0],properties=('label','area','bbox_area'))
             big_o[ii] = props['label'][np.where(props['area']>100)]
 
 
